@@ -22,7 +22,7 @@ foreach ($items as $item)
 	
 	echo '
 		<ul class="meta" title="Via ', ucfirst($item->type), '">
-			<li class="date">', date('jS F Y g:i:s A', $item->date), '</li>';
+			<li class="date" title="', date('jS F Y g:i:s A', $item->date), '">', Date::timeDiffInWords($item->date), '</li>';
 		
 	// Any sub text?
 	if (!empty($item->subtext))
