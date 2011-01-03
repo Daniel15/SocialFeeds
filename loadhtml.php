@@ -2,7 +2,7 @@
 require 'includes/core.php';
 
 // Do we have a count?
-$count = min(!empty($_REQUEST['count']) ? (int) $_REQUEST['count'] : 30, 100);
+$count = min(!empty($_REQUEST['count']) ? (int) $_REQUEST['count'] : 25, 100);
 $before_date = !empty($_REQUEST['before_date']) ? (int) $_REQUEST['before_date'] : null;
 
 $items = FeedSources::loadItems($count, $before_date);
@@ -11,7 +11,7 @@ $oldest_item = $items[count($items) - 1]->date;
 foreach ($items as $item)
 {
 	echo '
-	<li id="feeditem_', $item->id, '" class="feeditem source-', $item->type, '">
+	<li id="feeditem_', $item->id, '" class="feeditem source-', $item->type, '" data-date="', $item->date, '">
 		', $item->text;
 		
 	if (!empty($item->description))
@@ -47,4 +47,4 @@ foreach ($items as $item)
 ?>
 
 </ul>
-<a href="feed-nojs.htm?before_date=<?php echo $oldest_item ?>">View more!</a>
+<a href="feed.htm?before_date=<?php echo $oldest_item ?>" id="loadMore">View more!</a>
