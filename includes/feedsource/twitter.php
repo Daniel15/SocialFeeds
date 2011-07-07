@@ -33,6 +33,12 @@ class FeedSource_Twitter extends FeedSource
 		$data = array_reverse(json_decode(file_get_contents($url)));
 		foreach ($data as $item)
 		{
+			// Was it a retweet? Grab the original tweet's text, in case it was truncated
+			if (!empty($item->retweeted_status))
+			{
+				$item->text = 'RT @' . $item->retweeted_status->user->screen_name . ' ' . $item->retweeted_status->text;
+			}
+		
 			$this->saveToDB($item->id_str, strtotime($item->created_at), $item->text, null, null, array(
 				'source' => $item->source,
 				'reply' => !empty($item->in_reply_to_status_id_str),
@@ -55,6 +61,9 @@ class FeedSource_Twitter extends FeedSource
 			return false;
 		// Last.fm already imported
 		if (strpos($tweet->source, 'lastfmlove') !== false)
+			return false;
+		// Blog already imported
+		if (strpos($tweet->source, 'Daniel15\'s Blog') !== false)
 			return false;
 			
 		return true;

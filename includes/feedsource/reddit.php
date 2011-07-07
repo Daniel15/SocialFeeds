@@ -38,8 +38,11 @@ class FeedSource_Reddit extends FeedSource
 		foreach ($data->data->children as $item)
 		{
 			$item = $item->data;
-			
 			$date = $item->created_utc;
+			
+			// Skip it if it's older than the latest item
+			if ($date <= $this->latest_id)
+				continue;
 			
 			$this->saveToDB($date, $date, $item->title, null, $item->url, array(
 				'permalink' => 'http://www.reddit.com' . $item->permalink,
