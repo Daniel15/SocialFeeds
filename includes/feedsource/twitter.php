@@ -66,6 +66,10 @@ class FeedSource_Twitter extends FeedSource
 		if (strpos($tweet->source, 'Daniel15\'s Blog') !== false)
 			return false;
 			
+		// Hide @mentions by default
+		if ($tweet->text[0] == '@')
+			return false;
+			
 		return true;
 	}
 	
