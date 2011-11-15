@@ -84,7 +84,9 @@ class FeedSources
 		while ($row = $result->fetchObject())
 		{
 			$row->extra_data = unserialize($row->extra_data);
-			$results[] = $sources[$row->source_id]->loadFromDB($row);
+			$item = $sources[$row->source_id]->loadFromDB($row);
+			$item->relativeDate = Date::timeDiffInWords($row->date);
+			$results[] = $item;
 		}
 		
 		return $results;
