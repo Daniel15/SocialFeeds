@@ -18,6 +18,7 @@
  * You should have received a copy of the GNU General Public License
  * along with Social Feeds.  If not, see <http://www.gnu.org/licenses/>.
  */
+header('Content-Type: text/html; charset=utf-8');
 ?><ul id="socialfeed"><?php
 require 'includes/core.php';
 
