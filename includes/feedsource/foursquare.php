@@ -64,7 +64,7 @@ class FeedSource_Foursquare extends FeedSource
 	{
 		$result = (object)array(
 			'id' => $row->id,
-			'text' => 'At <a href="' . $this->getVenueUrl($row->extra_data['venue_id']) . '" rel="nofollow" target="_blank">' . $row->text . '</a> (' . $row->extra_data['location']->city . ', ' . $row->extra_data['location']->state . ')',
+			'text' => 'At <a href="' . $this->getVenueUrl($row->extra_data['venue_id']) . '" rel="nofollow" target="_blank">' . $row->text . '</a> ' . static::getCityName($row->extra_data),
 			'subtext' => '<a href="' . $this->getMapUrl($row->extra_data['location']->lat, $row->extra_data['location']->lng) . '" rel="nofollow" target="_blank">View map</a>',
 			'url' => $this->getCheckinUrl($this->username, $row->original_id),
 			'date' => $row->date,
@@ -77,6 +77,27 @@ class FeedSource_Foursquare extends FeedSource
 		}
 		
 		return $result;
+	}
+
+	/**
+	 * Builds a city display name based on the extra data provided. Includes the city and state names if available.
+	 * @static
+	 * @param array $extra_data Extra data saved for this feed item
+	 * @return string City name as it should be displayed
+	 */
+	protected static function getCityName(array $extra_data)
+	{
+		if (empty($extra_data['location']))
+			return '';
+
+		$location = $extra_data['location'];
+		$pieces = [];
+		if (!empty($location->city))
+			array_push($pieces, $location->city);
+		if (!empty($location->state))
+			array_push($pieces, $location->state);
+
+		return '(' . implode(', ', $pieces) . ')';
 	}
 	
 	protected static function getCheckinUrl($username, $checkinId)
