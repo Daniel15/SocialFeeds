@@ -64,6 +64,8 @@ class FeedSource_Youtube extends FeedSource
 				case 'video_rated':
 					$temp = $entry->children('http://gdata.youtube.com/schemas/2007')->rating->attributes();
 					$extra_data['rating'] = (string)$temp['value'];
+					// This intentionally falls through to the next "case" statement.
+					// No break statement required here!
 					
 				case 'video_shared':
 				case 'video_favorited':
@@ -73,8 +75,10 @@ class FeedSource_Youtube extends FeedSource
 					$title = (string)$mediadata->title;
 					$url = $mediadata->player;
 					list($url) = $url->attributes();
+					// Note: This is the old (Flash) embed URL.
 					$extra_data['embed'] = (string)$this->getEmbedUrl($videodata);
 					$extra_data['user'] = (string)$videodata->author->name;
+					$extra_data['id'] = (string)$videodata->id;
 					
 					break;
 					
@@ -86,7 +90,7 @@ class FeedSource_Youtube extends FeedSource
 					
 				// Ignore all others for now!
 				default:
-					echo 'Ignoring ', $entryType, "\n";
+					echo 'Ignoring ', $extra_data['entry_type'], "\n";
 					continue 2;
 			}
 			
@@ -130,7 +134,7 @@ class FeedSource_Youtube extends FeedSource
 		if (substr($row->extra_data['entry_type'], 0, 6) == 'video_')
 		{
 			$result['subtext'] = 'by <a href="' . $this->getProfileUrl($row->extra_data['user']) . '" rel="nofollow" target="_blank">' . $row->extra_data['user'] . '</a>';
-			$result['description'] = $this->getEmbedCode($row->extra_data['embed']);
+			$result['description'] = $this->getEmbedCode($row);
 		}
 		
 		return (object)$result;
@@ -147,7 +151,8 @@ class FeedSource_Youtube extends FeedSource
 		list($videodata) = $entry->xpath('./link[@rel="http://gdata.youtube.com/schemas/2007#video"]');
 		return $videodata->entry;
 	}
-	
+
+	// Note: This is the old (Flash) embed URL..
 	protected static function getEmbedUrl($videodata)
 	{
 		list($temp) = $videodata->xpath('./content[@type="application/x-shockwave-flash"]');
@@ -159,8 +164,30 @@ class FeedSource_Youtube extends FeedSource
 		return 'http://www.youtube.com/profile/' . $profile;
 	}
 	
-	protected static function getEmbedCode($embedUrl)
+	protected static function getEmbedCode($row)
 	{
-		return '<object width="480" height="385"><param name="movie" value="' . $embedUrl . '"></param><param name="allowFullScreen" value="true"></param><param name="allowscriptaccess" value="always"></param><embed src="' . $embedUrl . '" type="application/x-shockwave-flash" allowscriptaccess="always" allowfullscreen="true" width="480" height="385"></embed></object>';
+		//return '<object width="480" height="385"><param name="movie" value="' . $embedUrl . '"></param><param name="allowFullScreen" value="true"></param><param name="allowscriptaccess" value="always"></param><embed src="' . $embedUrl . '" type="application/x-shockwave-flash" allowscriptaccess="always" allowfullscreen="true" width="480" height="385"></embed></object>';
+
+		// Unfortunately YouTube only provides the old Flash embed URL via its API, they don't provide the iframe URL
+		// We have to build that manually :(
+		return '<iframe width="480" height="385" src="http://www.youtube.com/embed/' . static::getVideoID($row) . '" frameborder="0" allowfullscreen></iframe>';
+	}
+
+	protected static function getVideoID($row)
+	{
+		// Check if we have an ID just sitting in the data.
+		// Boy, that'd be nice.
+		if (!empty($row->extra_data['id']))
+		{
+			// Woohoo!
+			return $row->extra_data['id'];
+		}
+
+		// Nope, so we have to try determine it based om the video URL
+		// Parse its querystring and get the "v" parameter.
+		$querystring = parse_url($row->url, PHP_URL_QUERY);
+		$params = [];
+		parse_str($querystring, $params);
+		return $params['v'];
 	}
 }
