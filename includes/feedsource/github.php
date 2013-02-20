@@ -25,6 +25,7 @@
  */
 class FeedSource_Github extends FeedSource
 {
+	// TOOD: Ensure this sends a User-Agent
 	const API_URL = 'https://api.github.com/users/%s/events';
 
 	/**
@@ -36,6 +37,7 @@ class FeedSource_Github extends FeedSource
 		$url = '/var/www/socialfeeds/github2.json';
 
 		$data = json_decode(file_get_contents($url));
+		$this->latest_id = (int)$this->latest_id;
 
 		foreach ($data as $item)
 		{
@@ -44,123 +46,140 @@ class FeedSource_Github extends FeedSource
 			if ($time <= $this->latest_id)
 				continue;
 
+			$processMethod = 'process' . $item->type;
+			// Ensure we actually know what this event type is
+			if (!method_exists($this, $processMethod))
+			{
+				echo 'Ignoring unknown event "' . $item->type . "\"\n";
+				print_r($item);
+				continue;
+			}
+
 			$url = '';
 			$text = '';
 			$visible = true;
 			$extra_data = [
 				'type' => $item->type,
-				'repo' => $item->repo,
 			];
 
-			// TODO: Split this into separate methods and use factory method pattern
-			switch ($item->type)
+			// Check if it's associated with a repository
+			if (!empty($item->repo->id))
 			{
-				case 'PushEvent':
-					$extra_data += [
-						'head' => $item->payload->head,
-						'commits' => []
-					];
-
-					foreach ($item->payload->commits as $commit)
-					{
-						$extra_data['commits'][] = [
-							'sha' => $commit->sha,
-							'message' => $commit->message,
-							'url' => $commit->url
-						];
-					}
-
-					break;
-
-				case 'IssuesEvent':
-					$url = $item->payload->issue->url;
-					$text = $item->payload->issue->title;
-					$extra_data += [
-						'action' => $item->payload->action,
-						'number' => $item->payload->issue->number,
-					];
-					break;
-
-				case 'PullRequestEvent':
-					$url = $item->payload->pull_request->url;
-					$text = $item->payload->pull_request->title;
-					$extra_data += [
-						'state' => $item->payload->pull_request->state,
-						'number' => $item->payload->pull_request->number,
-					];
-					break;
-
-				case 'WatchEvent':
-					$url = $item->repo->url;
-					$text = $item->repo->name;
-					$extra_data += [
-						'action' => $item->payload->action,
-					];
-					break;
-
-				case 'FollowEvent':
-					$url = $item->payload->target->html_url;
-					// Show username if real name is not specified
-					$text = empty($item->payload->target->name) ? $item->payload->target->login : $item->payload->target->name;
-					$extra_data += [
-						'login' => $item->payload->target->login,
-					];
-					break;
-
-				case 'ForkEvent':
-					$url = $item->payload->forkee->html_url;
-
-					// Github's docs are incorrect; older repositories don't seem to have the "full_name" property.
-					if (empty($item->payload->forkee->full_name))
-						$text = $item->payload->forkee->owner->login . '/' . $item->payload->forkee->name;
-					else
-						$text = $item->payload->forkee->full_name;
-
-					break;
-
-				case 'CreateEvent':
-					$text = $item->payload->ref;
-					$extra_data += [
-						'ref_type' => $item->payload->ref_type,
-					];
-					break;
-
-				case 'GistEvent':
-					$url = $item->payload->gist->html_url;
-					$text = $item->payload->gist->description;
-					$extra_data += [
-						'action' => $item->payload->action,
-					];
-					break;
-
-				// These are saved but hidden right now... Not sure if they add much value in a social feed.
-				case 'IssueCommentEvent':
-					$url = $item->payload->issue->url;
-					$text = $item->payload->issue->title;
-					$extra_data += [
-						'number' => $item->payload->issue->number,
-					];
-
-					$visible = false;
-					break;
-
-				// Don't really care about these
-				case 'DeleteEvent':
-				case 'PullRequestReviewCommentEvent':
-				case 'CommitCommentEvent':
-					continue;
-
-				default:
-					echo 'Ignoring unknown event "' . $item->type . "\"\n";
-					print_r($item);
-					break;
+				$extra_data['repo'] = [
+					'id' => empty($item->repo->id) ? null : $item->repo->id,
+					'name' => $item->repo->name,
+					'url' => static::getRepoUrlFromApiUrl($item->repo->url),
+				];
 			}
 
-			throw new Exception('TODO: Save to database');
+			$this->$processMethod($item, $url, $text, $visible, $extra_data);
+			$this->saveToDB($item->id, $time, $text, null, $url, $extra_data, $visible);
+			$this->latest_id = max($this->latest_id, $time);
 		}
-
-		die();
 	}
+
+	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+	private function processCreateEvent($item, &$url, &$text, &$visible, &$extra_data)
+	{
+		$text = $item->payload->ref;
+		$extra_data += [
+			'ref_type' => $item->payload->ref_type,
+		];
+	}
+
+	private function processFollowEvent($item, &$url, &$text, &$visible, &$extra_data)
+	{
+		$url = $item->payload->target->html_url;
+		// Show username if real name is not specified
+		$text = empty($item->payload->target->name) ? $item->payload->target->login : $item->payload->target->name;
+		$extra_data += [
+			'login' => $item->payload->target->login,
+		];
+	}
+
+	private function processForkEvent($item, &$url, &$text, &$visible, &$extra_data)
+	{
+		$url = $item->payload->forkee->html_url;
+
+		// Github's docs are incorrect; older repositories don't seem to have the "full_name" property.
+		if (empty($item->payload->forkee->full_name))
+			$text = $item->payload->forkee->owner->login . '/' . $item->payload->forkee->name;
+		else
+			$text = $item->payload->forkee->full_name;
+	}
+
+	private function processGistEvent($item, &$url, &$text, &$visible, &$extra_data)
+	{
+		$url = $item->payload->gist->html_url;
+		$text = $item->payload->gist->description;
+		$extra_data += [
+			'action' => $item->payload->action,
+		];
+	}
+
+	// These are saved but hidden right now... Not sure if they add much value in a social feed.
+	private function processIssueCommentEvent($item, &$url, &$text, &$visible, &$extra_data)
+	{
+		$url = $item->payload->issue->html_url;
+		$text = $item->payload->issue->title;
+		$extra_data += [
+			'number' => $item->payload->issue->number,
+		];
+
+		$visible = false;
+	}
+
+	private function processIssuesEvent($item, &$url, &$text, &$visible, &$extra_data)
+	{
+		$url = $item->payload->issue->html_url;
+		$text = $item->payload->issue->title;
+		$extra_data += [
+			'action' => $item->payload->action,
+			'number' => $item->payload->issue->number,
+		];
+	}
+
+	private function processPullRequestEvent($item, &$url, &$text, &$visible, &$extra_data)
+	{
+		$url = $item->payload->pull_request->html_url;
+		$text = $item->payload->pull_request->title;
+		$extra_data += [
+			'state' => $item->payload->pull_request->state,
+			'number' => $item->payload->pull_request->number,
+		];
+	}
+
+	private function processPushEvent($item, &$url, &$text, &$visible, &$extra_data)
+	{
+		$extra_data += [
+			'head' => $item->payload->head,
+			'commits' => []
+		];
+
+		foreach ($item->payload->commits as $commit)
+		{
+			$extra_data['commits'][] = [
+				'sha' => $commit->sha,
+				'message' => $commit->message,
+				'url' => static::getRepoUrlFromApiUrl($commit->url),
+			];
+		}
+	}
+
+	private function processWatchEvent($item, &$url, &$text, &$visible, &$extra_data)
+	{
+		$url = static::getRepoUrlFromApiUrl($item->repo->url);
+		$text = $item->repo->name;
+		$extra_data += [
+			'action' => $item->payload->action,
+		];
+	}
+
+	// Don't really care about these
+	private function processCommitCommentEvent($item, &$url, &$text, &$visible, &$extra_data) {}
+	private function processDeleteEvent($item, &$url, &$text, &$visible, &$extra_data) {}
+	private function processPullRequestReviewCommentEvent($item, &$url, &$text, &$visible, &$extra_data) {}
+	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 	/**
 	 * Load a feed item from the database.
@@ -169,5 +188,18 @@ class FeedSource_Github extends FeedSource
 	{
 		throw new Exception('TODO');
 		// TODO: Implement loadFromDB() method.
+	}
+
+	/**
+	 * A bit of a hack to convert a Github repository API URL (eg. http://api.github.com/repos/Daniel15/SocialFeeds) intp
+	 * the public website URL.
+	 *
+	 * @static
+	 * @param $apiUrl API URL for the repository
+	 * @return string Github repository URL
+	 */
+	private static function getRepoUrlFromApiUrl($apiUrl)
+	{
+		return str_replace(['api.', '/repos'], '', $apiUrl);
 	}
 }
