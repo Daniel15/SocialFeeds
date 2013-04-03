@@ -20,13 +20,15 @@
  */
 class Database
 {
+	protected static $hostname;
 	protected static $db;
 	protected static $dbname;
 	protected static $username;
 	protected static $password;
 	
-	public static function setDetails($dbname, $username, $password)
+	public static function setDetails($hostname, $dbname, $username, $password)
 	{
+		self::$hostname = $hostname;
 		self::$dbname = $dbname;
 		self::$username = $username;
 		self::$password = $password;
@@ -36,7 +38,7 @@ class Database
 	{
 		if (self::$db == null)
 		{
-			self::$db = new PDO('mysql:host=localhost;dbname=' . self::$dbname, self::$username, self::$password, array(PDO::ATTR_PERSISTENT => true));
+			self::$db = new PDO('mysql:host=' . self::$hostname . ';dbname=' . self::$dbname, self::$username, self::$password);
 			self::$db->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
 		}
 		
