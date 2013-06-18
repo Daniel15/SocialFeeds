@@ -21,16 +21,20 @@
  
 class FeedSource_Twitter extends FeedSource
 {
-	const API_URL = 'http://api.twitter.com/1/statuses/user_timeline/%s.json';
+	const API_URL = 'https://api.twitter.com/1.1/statuses/user_timeline.json';
 	public function doUpdate()
 	{
-		$url = sprintf(self::API_URL, $this->username) . '?' . http_build_query(array(
+		$url = self::API_URL. '?' . http_build_query(array(
+			'screen_name' => $this->username,
 			'include_rts' => 1,
 			'count' => 200,
 			'since_id' => $this->latest_id,
 		), null, '&');
-		
-		$data = array_reverse(json_decode(file_get_contents($url)));
+
+		$oauth = new OAuth($this->extra_params['consumer_key'], $this->extra_params['consumer_secret']);
+		$oauth->setToken($this->extra_params['access_token'], $this->extra_params['access_token_secret']);
+		$oauth->fetch($url);
+		$data = array_reverse(json_decode($oauth->getLastResponse()));
 		foreach ($data as $item)
 		{
 			// Was it a retweet? Grab the original tweet's text, in case it was truncated
