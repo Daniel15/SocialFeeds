@@ -39,7 +39,7 @@ class FeedSource_Foursquare extends FeedSource
 		// If we have a minimum date, use it!
 		if ($this->latest_id > 0)
 		{
-			$querystring['afterTimestamp'] = $this->latest_id;
+			$querystring['afterTimestamp'] = $this->latest_id + 1;
 		}
 		
 		$url = self::API_URL . '?' . http_build_query($querystring, null, '&');
