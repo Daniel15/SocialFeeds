@@ -106,7 +106,10 @@ class FeedSource_Github extends FeedSource
 				];
 			}
 
-			$this->$processMethod($item, $url, $text, $visible, $extra_data);
+			// If the processing method returns false, this event shouldn't be saved
+			if (!$this->$processMethod($item, $url, $text, $visible, $extra_data))
+				continue;
+
 			$this->saveToDB($item->id, $time, $text, null, $url, $extra_data, $visible);
 			$this->latest_id = max($this->latest_id, $time);
 		}
@@ -132,6 +135,7 @@ class FeedSource_Github extends FeedSource
 		$extra_data += [
 			'ref_type' => $item->payload->ref_type,
 		];
+		return true;
 	}
 
 	private function processFollowEvent($item, &$url, &$text, &$visible, &$extra_data)
@@ -142,6 +146,7 @@ class FeedSource_Github extends FeedSource
 		$extra_data += [
 			'login' => $item->payload->target->login,
 		];
+		return true;
 	}
 
 	private function processForkEvent($item, &$url, &$text, &$visible, &$extra_data)
@@ -153,6 +158,7 @@ class FeedSource_Github extends FeedSource
 			$text = $item->payload->forkee->owner->login . '/' . $item->payload->forkee->name;
 		else
 			$text = $item->payload->forkee->full_name;
+		return true;
 	}
 
 	private function processGistEvent($item, &$url, &$text, &$visible, &$extra_data)
@@ -162,6 +168,7 @@ class FeedSource_Github extends FeedSource
 		$extra_data += [
 			'action' => $item->payload->action,
 		];
+		return true;
 	}
 
 	// These are saved but hidden right now... Not sure if they add much value in a social feed.
@@ -174,6 +181,7 @@ class FeedSource_Github extends FeedSource
 		];
 
 		$visible = false;
+		return true;
 	}
 
 	private function processIssuesEvent($item, &$url, &$text, &$visible, &$extra_data)
@@ -184,6 +192,7 @@ class FeedSource_Github extends FeedSource
 			'action' => $item->payload->action,
 			'number' => $item->payload->issue->number,
 		];
+		return true;
 	}
 
 	private function processPullRequestEvent($item, &$url, &$text, &$visible, &$extra_data)
@@ -194,6 +203,7 @@ class FeedSource_Github extends FeedSource
 			'state' => $item->payload->pull_request->state,
 			'number' => $item->payload->pull_request->number,
 		];
+		return true;
 	}
 
 	private function processPushEvent($item, &$url, &$text, &$visible, &$extra_data)
@@ -211,6 +221,7 @@ class FeedSource_Github extends FeedSource
 				'url' => static::getRepoUrlFromApiUrl($commit->url),
 			];
 		}
+		return true;
 	}
 
 	private function processWatchEvent($item, &$url, &$text, &$visible, &$extra_data)
@@ -220,12 +231,20 @@ class FeedSource_Github extends FeedSource
 		$extra_data += [
 			'action' => $item->payload->action,
 		];
+		return true;
 	}
 
 	// Don't really care about these
-	private function processCommitCommentEvent($item, &$url, &$text, &$visible, &$extra_data) {}
-	private function processDeleteEvent($item, &$url, &$text, &$visible, &$extra_data) {}
-	private function processPullRequestReviewCommentEvent($item, &$url, &$text, &$visible, &$extra_data) {}
+	private function processCommitCommentEvent($item, &$url, &$text, &$visible, &$extra_data) {
+		return false;
+	}
+	private function processDeleteEvent($item, &$url, &$text, &$visible, &$extra_data) {
+		$visible = false;
+		return true;
+	}
+	private function processPullRequestReviewCommentEvent($item, &$url, &$text, &$visible, &$extra_data) {
+		return false;
+	}
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 	/**
@@ -243,7 +262,7 @@ class FeedSource_Github extends FeedSource
 				{
 					$text = 'Created new branch ' . $link . ' on <a href="' . $row->extra_data['repo']['url'] . '" rel="nofollow">' . $row->extra_data['repo']['name'] . '</a>';
 				}
-				elseif ($row->extra_data['ref_type'] == 'branch')
+				elseif ($row->extra_data['ref_type'] == 'tag')
 				{
 					$text = 'Created new tag ' . $link . ' for <a href="' . $row->extra_data['repo']['url'] . '" rel="nofollow">' . $row->extra_data['repo']['name'] . '</a>';
 				}
@@ -289,8 +308,15 @@ class FeedSource_Github extends FeedSource
 
 			// Any unrecognised events. Should never happen as unrecognised events are not saved to the DB
 			default:
+				print_r($row);
 				$text = $row->extra_data['type'] . ': ' . $row->text;
 				break;
+		}
+
+		if (empty($text))
+		{
+			print_r($row);
+			die();
 		}
 
 		return (object)array(
