@@ -308,15 +308,8 @@ class FeedSource_Github extends FeedSource
 
 			// Any unrecognised events. Should never happen as unrecognised events are not saved to the DB
 			default:
-				print_r($row);
 				$text = $row->extra_data['type'] . ': ' . $row->text;
 				break;
-		}
-
-		if (empty($text))
-		{
-			print_r($row);
-			die();
 		}
 
 		return (object)array(
