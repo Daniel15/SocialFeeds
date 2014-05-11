@@ -38,7 +38,7 @@ class Database
 	{
 		if (self::$db == null)
 		{
-			self::$db = new PDO('mysql:host=' . self::$hostname . ';dbname=' . self::$dbname, self::$username, self::$password);
+			self::$db = new PDO('mysql:charset=utf8mb4;host=' . self::$hostname . ';dbname=' . self::$dbname, self::$username, self::$password);
 			self::$db->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
 		}
 		
