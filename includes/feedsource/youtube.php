@@ -66,7 +66,6 @@ class FeedSource_Youtube extends FeedSource
 					// channel that posted the video is totally missing from the API
 					// response, so we need to do a separate API request to get it.
 					$liked[] = [
-						'id' => $entry->id,
 						'time' => $time,
 						'video_id' => $entry->contentDetails->like->resourceId->videoId,
 					];
@@ -76,7 +75,6 @@ class FeedSource_Youtube extends FeedSource
 					// As above, the API response doesn't even contain the *name* of the
 					// channel that was subscribed to. Thanks Google.
 					$subscribed[] = [
-						'id' => $entry->id,
 						'channel_id' => $entry->contentDetails->subscription->resourceId->channelId,
 						'time' => $time,
 					];
@@ -114,7 +112,7 @@ class FeedSource_Youtube extends FeedSource
 			// Hardcoding URL formats is my favourite thing ever. Thanks Google.
 			$url = 'https://www.youtube.com/watch?v=' . $raw_datum['video_id'];
 			$this->saveToDB(
-				$raw_datum['id'],
+				$raw_datum['time'] . '_' . $raw_datum['video_id'],
 				$raw_datum['time'],
 				$video->snippet->title,
 				null,
@@ -147,7 +145,7 @@ class FeedSource_Youtube extends FeedSource
 
 			$channel = $channels[$raw_datum['channel_id']];
 			$this->saveToDB(
-				$raw_datum['id'],
+				$raw_datum['time'] . '_' . $raw_datum['channel_id'],
 				$raw_datum['time'],
 				$channel->snippet->title,
 				$channel->snippet->description,
