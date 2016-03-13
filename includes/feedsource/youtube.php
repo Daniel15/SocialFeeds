@@ -24,83 +24,159 @@
  */
 class FeedSource_Youtube extends FeedSource
 {
-	const API_URL = 'http://gdata.youtube.com/feeds/api/users/%s/events';
-	
+	const API_URL = 'https://www.googleapis.com/youtube/v3/%s';
+
 	public function doUpdate()
 	{
 		$querystring = array(
-			'v' => 2,
-			'key' => Config::YOUTUBE_API_KEY,
-			'inline' => 'true',
-			'max-results' => 50,
+			'part' => 'snippet,contentDetails',
+			'channelId' => $this->username,
+			'maxResults' => 50,
 		);
-		
 		$this->latest_id = (int)$this->latest_id;
-		$latest_id = $this->latest_id;
-		
+
 		// If we have a minimum date, use it
 		if ($this->latest_id > 0)
 		{
-			$querystring['published-min'] = gmdate('Y-m-d\TH:i:s\Z', $this->latest_id + 1);
+			$querystring['publishedAfter'] = gmdate('Y-m-d\TH:i:s\Z', $this->latest_id + 1);
 		}
-		
-		$url = sprintf(self::API_URL, $this->username) . '?' . http_build_query($querystring, null, '&');
-		$data = simplexml_load_string(str_replace('xmlns=', 'ns=', file_get_contents($url)));
-		
-		foreach ($data->entry as $entry)
+
+		do {
+			$data = $this->callAPI('activities', $querystring);
+			$this->doUpdatePage($data);
+			// Go through all pages until completed
+			$querystring['pageToken'] = empty($data->nextPageToken) ? null : $data->nextPageToken;
+		} while (!empty($querystring['pageToken']));
+	}
+
+	private function doUpdatePage($data)
+	{
+		$liked = [];
+		$subscribed = [];
+
+		foreach ($data->items as $entry)
 		{
-			$time = strtotime($entry->updated);
-			
-			// Skip it if it's older than the latest item
-			if ($time <= $this->latest_id)
-				continue;
-				
-			$extra_data = array(
-				'entry_type' => $this->getEntryType($entry)
-			);
-			
-			switch ($extra_data['entry_type'])
+			$time = strtotime($entry->snippet->publishedAt);
+		 	$this->latest_id = max($this->latest_id, $time);
+
+			switch ($entry->snippet->type)
 			{
-				case 'video_rated':
-					$temp = $entry->children('http://gdata.youtube.com/schemas/2007')->rating->attributes();
-					$extra_data['rating'] = (string)$temp['value'];
-					// This intentionally falls through to the next "case" statement.
-					// No break statement required here!
-					
-				case 'video_shared':
-				case 'video_favorited':
-					$videodata = $this->getVideoData($entry);
-					$mediadata = $videodata->children('http://search.yahoo.com/mrss/')->group;
-					
-					$title = (string)$mediadata->title;
-					$url = $mediadata->player;
-					list($url) = $url->attributes();
-					// Note: This is the old (Flash) embed URL.
-					$extra_data['embed'] = (string)$this->getEmbedUrl($videodata);
-					$extra_data['user'] = (string)$videodata->author->name;
-					$extra_data['id'] = (string)$videodata->id;
-					
+				case 'like':
+				 	// Scumbag YouTube API, important information like the name of the
+					// channel that posted the video is totally missing from the API
+					// response, so we need to do a separate API request to get it.
+					$liked[] = [
+						'id' => $entry->id,
+						'time' => $time,
+						'video_id' => $entry->contentDetails->like->resourceId->videoId,
+					];
 					break;
-					
-				case 'user_subscription_added':
-					$title = (string)$entry->children('http://gdata.youtube.com/schemas/2007')->username;
-					$url = $this->getProfileUrl((string)$title);
-					
+
+				case 'subscription':
+					// As above, the API response doesn't even contain the *name* of the
+					// channel that was subscribed to. Thanks Google.
+					$subscribed[] = [
+						'id' => $entry->id,
+						'channel_id' => $entry->contentDetails->subscription->resourceId->channelId,
+						'time' => $time,
+					];
 					break;
-					
+
 				// Ignore all others for now!
 				default:
-					echo 'Ignoring ', $extra_data['entry_type'], "\n";
+					echo 'Ignoring ', $entry->snippet->type, "\n";
 					continue 2;
 			}
-			
-			$latest_id = max($latest_id, $time);
-			$this->saveToDB($time, $time, $title, null, $url, $extra_data);
 		}
-		
-		$this->latest_id = $latest_id;
+
+		$this->insertLikedVideos($liked);
+		$this->insertSubscribedChannels($subscribed);
 	}
-	
+
+	private function insertLikedVideos($raw_data)
+	{
+		$video_ids = array_map(function($data) { return $data['video_id']; }, $raw_data);
+		$videos = self::indexByID($this->callAPI('videos', [
+			'part' => 'player,snippet',
+			'id' => implode(',', $video_ids),
+		]));
+
+		foreach ($raw_data as $raw_datum)
+		{
+			if (empty($videos[$raw_datum['video_id']]))
+			{
+				echo 'Skipping unknown video "' . $raw_datum['video_id'] . "\"\n";
+				continue;
+			}
+
+			$video = $videos[$raw_datum['video_id']];
+			// YouTube API v3 doesn't include video URL like v2 does.
+			// Hardcoding URL formats is my favourite thing ever. Thanks Google.
+			$url = 'https://www.youtube.com/watch?v=' . $raw_datum['video_id'];
+			$this->saveToDB(
+				$raw_datum['id'],
+				$raw_datum['time'],
+				$video->snippet->title,
+				null,
+				$url,
+				[
+					'entry_type' => 'v3_video_liked',
+					'embed_html' => $video->player->embedHtml,
+					'channel_id' => $video->snippet->channelId,
+					'channel_name' => $video->snippet->channelTitle,
+					'video_id' => $raw_datum['video_id'],
+				]);
+		}
+	}
+
+	private function insertSubscribedChannels($raw_data)
+	{
+		$channel_ids = array_map(function($data) { return $data['channel_id']; }, $raw_data);
+		$channels = self::indexByID($this->callAPI('channels', [
+			'part' => 'snippet',
+			'id' => implode(',', $channel_ids),
+		]));
+
+		foreach ($raw_data as $raw_datum)
+		{
+			if (empty($channels[$raw_datum['channel_id']]))
+			{
+				echo 'Skipping unknown channel "' . $raw_datum['channel_id'] . "\"\n";
+				continue;
+			}
+
+			$channel = $channels[$raw_datum['channel_id']];
+			$this->saveToDB(
+				$raw_datum['id'],
+				$raw_datum['time'],
+				$channel->snippet->title,
+				$channel->snippet->description,
+				self::getChannelURL($raw_datum['channel_id']),
+				[
+					'entry_type' => 'v3_channel_subscribed',
+					'channel_id' => $raw_datum['channel_id'],
+				]
+			);
+		}
+	}
+
+	private function callAPI($endpoint, $params)
+	{
+		$params['key'] = Config::YOUTUBE_API_KEY;
+		$url = sprintf(self::API_URL, $endpoint) . '?' . http_build_query($params, null, '&');
+		return json_decode(file_get_contents($url));
+	}
+
+	private static function indexByID($data)
+	{
+		$output = [];
+		foreach ($data->items as $item)
+		{
+			$output[$item->id] = $item;
+		}
+		return $output;
+	}
+
 	public function loadFromDB($row)
 	{
 		$result = array(
@@ -110,66 +186,62 @@ class FeedSource_Youtube extends FeedSource
 			'date' => $row->date,
 			'type' => 'youtube',
 		);
-		
+
 		// What type of post is this?
 		switch ($row->extra_data['entry_type'])
 		{
-			case 'video_rated':
+			// Modern (API v3) types
+			case 'v3_video_liked':
 				$result['text'] = 'Liked a video: ' . $result['text'];
+				$result['subtext'] = 'by <a href="' . self::getChannelURL($row->extra_data['channel_id']) . '" rel="nofollow" target="_blank">' . $row->extra_data['channel_name'] . '</a>';
+				$result['description'] = $row->extra_data['embed_html'];
 				break;
-				
-			case 'video_favorited':
-				$result['text'] = 'Favourited a video: ' . $result['text'];
-				break;
-				
-			case 'video_shared':
-				$result['text'] = 'Shared a video: ' . $result['text'];
-				break;
-				
+
+			case 'v3_channel_subscribed':
 			case 'user_subscription_added':
 				$result['text'] = 'Subscribed to ' . $result['text'] . ' on YouTube';
 				break;
+
+			// Legacy (API v2) types
+			case 'video_rated':
+				$result['text'] = 'Liked a video: ' . $result['text'];
+				break;
+
+			case 'video_favorited':
+				$result['text'] = 'Favourited a video: ' . $result['text'];
+				break;
+
+			case 'video_shared':
+				$result['text'] = 'Shared a video: ' . $result['text'];
+				break;
+
 		}
-		
+
+		// Legacy
 		if (substr($row->extra_data['entry_type'], 0, 6) == 'video_')
 		{
 			$result['subtext'] = 'by <a href="' . $this->getProfileUrl($row->extra_data['user']) . '" rel="nofollow" target="_blank">' . $row->extra_data['user'] . '</a>';
 			$result['description'] = $this->getEmbedCode($row);
 		}
-		
+
 		return (object)$result;
 	}
-	
-	protected static function getEntryType($entry)
-	{
-		$temp = $entry->xpath('./category[@scheme="http://gdata.youtube.com/schemas/2007/userevents.cat"]');
-		return (string)$temp[0]['term'];
-	}
-	
-	protected static function getVideoData($entry)
-	{
-		list($videodata) = $entry->xpath('./link[@rel="http://gdata.youtube.com/schemas/2007#video"]');
-		return $videodata->entry;
+
+	protected static function getChannelURL($id) {
+		return 'https://www.youtube.com/channel/' . $id;
 	}
 
-	// Note: This is the old (Flash) embed URL..
-	protected static function getEmbedUrl($videodata)
-	{
-		list($temp) = $videodata->xpath('./content[@type="application/x-shockwave-flash"]');
-		return $temp[0]['src'];
-	}
-	
+	// Legacy profile URLs
 	protected static function getProfileUrl($profile)
 	{
 		return 'http://www.youtube.com/profile/' . $profile;
 	}
-	
+
 	protected static function getEmbedCode($row)
 	{
-		//return '<object width="480" height="385"><param name="movie" value="' . $embedUrl . '"></param><param name="allowFullScreen" value="true"></param><param name="allowscriptaccess" value="always"></param><embed src="' . $embedUrl . '" type="application/x-shockwave-flash" allowscriptaccess="always" allowfullscreen="true" width="480" height="385"></embed></object>';
-
-		// Unfortunately YouTube only provides the old Flash embed URL via its API, they don't provide the iframe URL
+		// Unfortunately, with API v2, YouTube only provided the old Flash embed URL via its API, they didnt provide the iframe URL
 		// We have to build that manually :(
+		// This is only for legacy data, API v3 does return the embed code in the response.
 		return '<iframe width="480" height="385" src="http://www.youtube.com/embed/' . static::getVideoID($row) . '" frameborder="0" allowfullscreen></iframe>';
 	}
 
