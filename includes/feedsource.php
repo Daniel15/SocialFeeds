@@ -96,7 +96,7 @@ abstract class FeedSource
 				':description' => $description,
 				':url' => $url,
 				':extra_data' => serialize($extra),
-				':visible' => $visible,
+				':visible' => $visible ? 1 : 0,
 			));
 		
 			$this->inserted++;
