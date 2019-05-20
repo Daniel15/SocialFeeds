@@ -25,5 +25,5 @@ $count = min(!empty($_REQUEST['count']) ? (int) $_REQUEST['count'] : 10, 100);
 $before_date = !empty($_REQUEST['before_date']) ? (int) $_REQUEST['before_date'] : null;
 
 header('Content-type: application/json');
-echo json_encode(FeedSources::loadItems($count, $before_date));
+echo json_encode(FeedSources::loadItems($count, $before_date), JSON_PARTIAL_OUTPUT_ON_ERROR);
 ?>
