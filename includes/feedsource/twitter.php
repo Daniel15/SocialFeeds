@@ -29,7 +29,7 @@ class FeedSource_Twitter extends FeedSource
 		$connection = new TwitterOAuth(
 			$this->extra_params['consumer_key'],
 			$this->extra_params['consumer_secret'],
-			$this->extra_params['access_token'], 
+			$this->extra_params['access_token'],
 			$this->extra_params['access_token_secret']
 		);
 		$data = $connection->get('statuses/user_timeline', [
@@ -125,12 +125,10 @@ class FeedSource_Twitter extends FeedSource
 		// Reverse order so character offsets always make sense
 		krsort($entities);
 		foreach ($entities as $entity) {
-			$text = substr_replace(
-				$text,
-				$entity['text'],
-				$entity['start'],
-				$entity['end'] - $entity['start']
-			);
+			$text =
+				mb_substr($text, 0, $entity['start']).
+				$entity['text'].
+				mb_substr($text, $entity['end']);
 		}
 
 		return $text;
