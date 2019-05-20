@@ -19,22 +19,27 @@
  * along with Social Feeds.  If not, see <http://www.gnu.org/licenses/>.
  */
 
+use Abraham\TwitterOAuth\TwitterOAuth;
+
 class FeedSource_Twitter extends FeedSource
 {
 	const API_URL = 'https://api.twitter.com/1.1/statuses/user_timeline.json';
 	public function doUpdate()
 	{
-		$url = self::API_URL. '?' . http_build_query(array(
+		$connection = new TwitterOAuth(
+			$this->extra_params['consumer_key'],
+			$this->extra_params['consumer_secret'],
+			$this->extra_params['access_token'], 
+			$this->extra_params['access_token_secret']
+		);
+		$data = $connection->get('statuses/user_timeline', [
 			'screen_name' => $this->username,
 			'include_rts' => 1,
-			'count' => 200,
+			'count' => 3200,
 			'since_id' => $this->latest_id,
-		), null, '&');
+		]);
+		$data = array_reverse($data);
 
-		$oauth = new OAuth($this->extra_params['consumer_key'], $this->extra_params['consumer_secret']);
-		$oauth->setToken($this->extra_params['access_token'], $this->extra_params['access_token_secret']);
-		$oauth->fetch($url);
-		$data = array_reverse(json_decode($oauth->getLastResponse()));
 		foreach ($data as $item)
 		{
 			$extra_data = [

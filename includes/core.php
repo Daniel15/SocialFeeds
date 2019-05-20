@@ -36,4 +36,6 @@ function autoload($className)
 }
 
 spl_autoload_register('autoload');
+
+require __DIR__.'/../vendor/autoload.php';
 ?>
